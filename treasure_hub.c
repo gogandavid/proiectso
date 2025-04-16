@@ -27,11 +27,18 @@ int main(int argc, char* argv[]){
   while(1){
 
     scanf("%19s", &comanda);
-    
   if(strcmp(comanda,"start_monitor")){
       printf("p1 merge");
       stare = 1;
-      //fork();
+      int pid;
+      pid = fork();
+      if(pid < 0){
+	perror("eroare");
+	etix(1);
+      }
+      if(pid == 0){
+	
+      }
   }
   if(strcmp(comanda,"list_hunts")){
     printf("p2 merge");
@@ -50,9 +57,9 @@ int main(int argc, char* argv[]){
     //wait();
     printf("gata");
     stare = 0;
-    break;
   }
   }
   printf("proces oprit");
   return 0;
 }
+
