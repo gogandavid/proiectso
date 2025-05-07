@@ -21,6 +21,7 @@ void sigusr1Handler(int sig) {
 
         if (strcmp(cmd, "list_hunts") == 0) {
             printf("[Monitor] Listing all hunts\n");
+            exec("./treasure_manager()")
         } else if (strcmp(cmd, "list_treasures") == 0) {
             printf("[Monitor] Listing all treasures in this hunt\n");
         } else if (strcmp(cmd, "view_treasure") == 0) {
