@@ -20,18 +20,45 @@ volatile sig_atomic_t monitor_pid = 0;
 volatile sig_atomic_t monitor_exited = 0;
 
 void sigchildHandler(int sig) {
-    int status;
-    wait(&status);
+    char buffer[128];
+    int fd = open("/tmp/monitor_cmd.txt", O_RDONLY);
+    if (fd >= 0) {
+        read(fd, buffer, sizeof(buffer) - 1);
+        close(fd);
+        buffer[strcspn(buffer, "\n")] = 0;
+
+        if (sig == SIGUSR1) {
+            execl("./treasure_manager", "treasure_manager", "list", "hunt1", NULL);
+        } else if (sig == SIGUSR2) {
+            execl("./treasure_manager", "treasure_manager", "list", "hunt1", NULL);
+        } else if (sig == SIGTERM) {
+            char *token = strtok(buffer, " ");
+            token = strtok(NULL, " ");
+            char *hunt_id = token;
+            token = strtok(NULL, " ");
+            char *treasure_id = token;
+            execl("./treasure_manager", "treasure_manager", "view", hunt_id, treasure_id, NULL);
+        } else if (sig == SIGCONT) {
+            execl("./treasure_manager", "treasure_manager", "details", "hunt1", NULL);
+        } else if (sig == SIGINT) {
+            printf("Stopping monitor...\n");
+            exit(0);
+        }
+    }
     monitor_exited = 1;
-    printf("Monitor process exited with status %d\n", status);
+    printf("Monitor process handled signal %d\n", sig);
 }
 
 int main() {
-    struct sigaction sachild;
-    sachild.sa_handler = sigchildHandler;
-    sigemptyset(&sachild.sa_mask);
-    sachild.sa_flags = 0;
-    sigaction(SIGCHLD, &sachild, NULL);
+    struct sigaction sa;
+    sa.sa_handler = sigchildHandler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGUSR1, &sa, NULL);
+    sigaction(SIGUSR2, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGCONT, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
 
     char comanda[128];
     int monitor_merge = 0;
@@ -54,28 +81,7 @@ int main() {
             pid_t pid = fork();
             if (pid == 0) {
                 while (1) {
-                    char buffer[128];
-                    int fd = open("/tmp/monitor_cmd.txt", O_RDONLY);
-                    if (fd >= 0) {
-                        read(fd, buffer, sizeof(buffer) - 1);
-                        close(fd);
-                        buffer[strcspn(buffer, "\n")] = 0;
-
-                        if (strcmp(buffer, "list_hunts") == 0) {
-                            execl("./treasure_manager", "treasure_manager", "list", "hunt1", NULL);
-                        } else if (strcmp(buffer, "list_treasures") == 0) {
-                            execl("./treasure_manager", "treasure_manager", "list", "hunt1", NULL);
-                        } else if (strncmp(buffer, "view_treasure", 14) == 0) {
-                            char *token = strtok(buffer, " ");
-                            token = strtok(NULL, " ");
-                            char *hunt_id = token;
-                            token = strtok(NULL, " ");
-                            char *treasure_id = token;
-                            execl("./treasure_manager", "treasure_manager", "view", hunt_id, treasure_id, NULL);
-                        }
-                        usleep(500000);
-                    }
-                    usleep(500000);
+                    pause();
                 }
                 exit(0);
             } else if (pid > 0) {
@@ -90,7 +96,7 @@ int main() {
                 printf("Monitor not running.\n");
                 continue;
             }
-            kill(monitor_pid, SIGTERM);
+            kill(monitor_pid, SIGINT);
             usleep(1000000);
             monitor_merge = 0;
         } else if (strcmp(comanda, "exit") == 0) {
@@ -111,6 +117,16 @@ int main() {
             }
             dprintf(fd, "%s\n", comanda);
             close(fd);
+
+            if (strcmp(comanda, "list_hunts") == 0) {
+                kill(getpid(), SIGUSR1);
+            } else if (strcmp(comanda, "list_treasures") == 0) {
+                kill(getpid(), SIGUSR2);
+            } else if (strncmp(comanda, "view_treasure", 14) == 0) {
+                kill(getpid(), SIGTERM);
+            } else if (strcmp(comanda, "details") == 0) {
+                kill(getpid(), SIGCONT);
+            }
         }
     }
     return 0;
