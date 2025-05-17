@@ -18,33 +18,18 @@ struct sigaction {
 
 volatile sig_atomic_t monitor_pid = 0;
 volatile sig_atomic_t monitor_exited = 0;
+int pipefd[2];
 
 void sigchildHandler(int sig) {
-    char buffer[128];
-    int fd = open("/tmp/monitor_cmd.txt", O_RDONLY);
-    if (fd >= 0) {
-        read(fd, buffer, sizeof(buffer) - 1);
-        close(fd);
-        buffer[strcspn(buffer, "\n")] = 0;
-
-        if (sig == SIGUSR1) {
-            execl("./treasure_manager", "treasure_manager", "list", "hunt1", NULL);
-        } else if (sig == SIGUSR2) {
-            execl("./treasure_manager", "treasure_manager", "list", "hunt1", NULL);
-        } else if (sig == SIGTERM) {
-            char *token = strtok(buffer, " ");
-            token = strtok(NULL, " ");
-            char *hunt_id = token;
-            token = strtok(NULL, " ");
-            char *treasure_id = token;
-            execl("./treasure_manager", "treasure_manager", "view", hunt_id, treasure_id, NULL);
-        } else if (sig == SIGCONT) {
-            execl("./treasure_manager", "treasure_manager", "details", "hunt1", NULL);
-        } else if (sig == SIGINT) {
-            printf("Stopping monitor...\n");
-            exit(0);
-        }
+    char buffer[1024];
+    close(pipefd[1]);
+    int n = read(pipefd[0], buffer, sizeof(buffer) - 1);
+    if (n > 0) {
+        buffer[n] = '\0';
+        printf("%s", buffer);
     }
+    close(pipefd[0]);
+    wait(NULL);
     monitor_exited = 1;
     printf("Monitor process handled signal %d\n", sig);
 }
@@ -78,11 +63,12 @@ int main() {
                 continue;
             }
 
+            pipe(pipefd);
             pid_t pid = fork();
             if (pid == 0) {
-                while (1) {
-                    pause();
-                }
+                close(pipefd[0]);
+                dup2(pipefd[1], STDOUT_FILENO);
+                pause();
                 exit(0);
             } else if (pid > 0) {
                 monitor_pid = pid;
@@ -105,6 +91,39 @@ int main() {
                 continue;
             }
             break;
+        } else if (strcmp(comanda, "calculate_score") == 0) {
+            DIR *dir = opendir("treasure_hunts");
+            if (!dir) {
+                perror("opendir");
+                continue;
+            }
+
+            struct dirent *entry;
+            while ((entry = readdir(dir)) != NULL) {
+                if (entry->d_type == DT_DIR && strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+                    int score_pipe[2];
+                    pipe(score_pipe);
+                    pid_t pid = fork();
+                    if (pid == 0) {
+                        close(score_pipe[0]);
+                        dup2(score_pipe[1], STDOUT_FILENO);
+                        execl("./calculate_score", "calculate_score", entry->d_name, NULL);
+                        perror("execl");
+                        exit(1);
+                    } else {
+                        close(score_pipe[1]);
+                        char buffer[1024];
+                        int n = read(score_pipe[0], buffer, sizeof(buffer) - 1);
+                        if (n > 0) {
+                            buffer[n] = '\0';
+                            printf("%s", buffer);
+                        }
+                        close(score_pipe[0]);
+                        waitpid(pid, NULL, 0);
+                    }
+                }
+            }
+            closedir(dir);
         } else {
             if (!monitor_merge) {
                 printf("Monitor is not running. Please start it first.\n");
@@ -124,11 +143,12 @@ int main() {
                 kill(getpid(), SIGUSR2);
             } else if (strncmp(comanda, "view_treasure", 14) == 0) {
                 kill(getpid(), SIGTERM);
-            } else if (strcmp(comanda, "details") == 0) {
+            } else {
                 kill(getpid(), SIGCONT);
             }
         }
     }
     return 0;
 }
+
 
